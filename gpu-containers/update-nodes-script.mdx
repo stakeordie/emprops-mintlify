@@ -1,0 +1,167 @@
+---
+title: 'update_nodes.sh Script'
+description: 'Documentation for the update_nodes.sh script for managing custom nodes and models'
+---
+
+# update_nodes.sh Script
+
+The `update_nodes.sh` script is responsible for managing custom nodes and models in the emp-mgpu environment. It handles synchronization with S3, installation, updating, and tracking the state of custom nodes.
+
+## Overview
+
+This script is the core utility for managing ComfyUI custom nodes and models. It's installed in the container at `/usr/local/lib/mcomfy/update_nodes.sh` and is typically called by the [mcomfy](/gpu-containers/mcomfy-script) utility script rather than directly.
+
+## Usage
+
+```bash
+/usr/local/lib/mcomfy/update_nodes.sh [options]
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--nodes-only` | Only update custom nodes, skip model sync |
+| `--models-only` | Only sync models, skip node updates |
+
+## Features
+
+### S3 Synchronization
+
+The script can synchronize configuration files and models from an S3 bucket:
+
+```bash
+sync_from_s3() {
+    info "=== Starting S3 sync ==="
+    
+    # Determine which bucket to use based on AWS_TEST_MODE
+    local bucket="emprops-share"
+    if [ "${AWS_TEST_MODE:-false}" = "true" ]; then
+        info "Using test bucket: emprops-share-test"
+        bucket="emprops-share-test"
+    else
+        info "Using production bucket: emprops-share"
+    fi
+
+    # Sync only config files from S3, exclude models and custom_nodes
+    info "Syncing config files from s3://$bucket..."
+    if [ "${SKIP_AWS_SYNC:-false}" = "true" ]; then
+        info "Skipping AWS S3 sync (SKIP_AWS_SYNC=true)"
+    else
+        info "Running AWS S3 sync for config files..."
+        aws s3 sync "s3://$bucket" /workspace/shared \
+            --exclude "*" \
+            --include "config_nodes*.json" \
+            --size-only 2>&1 | tee -a "${UPDATE_LOG}"
+        
+        # Check sync status
+        # ...
+    fi
+    
+    info "=== S3 sync complete ==="
+}
+```
+
+### Node State Management
+
+The script tracks the state of custom nodes to determine which ones need to be updated:
+
+```bash
+get_node_state() {
+    local name=$1
+    local dir="/workspace/shared/custom_nodes/$name"
+    
+    if [ ! -d "$dir" ]; then
+        echo "not_installed"
+        return
+    fi
+    
+    if [ ! -d "$dir/.git" ]; then
+        echo "invalid"
+        return
+    fi
+    
+    cd "$dir" || return
+    
+    local current_commit
+    current_commit=$(git rev-parse HEAD 2>/dev/null)
+    local current_url
+    current_url=$(git config --get remote.origin.url 2>/dev/null)
+    
+    echo "$current_url|$current_commit"
+}
+```
+
+### Node Installation and Updates
+
+The script can install and update custom nodes from Git repositories:
+
+```bash
+setup_node() {
+    local name=$1
+    local url=$2
+    local commit=$3
+    local install_dir="/workspace/shared/custom_nodes/$name"
+    local requirements_file="${install_dir}/requirements.txt"
+    
+    info "Setting up node: $name"
+    info "  URL: $url"
+    info "  Commit: $commit"
+    
+    # Check if node directory exists
+    if [ ! -d "$install_dir" ]; then
+        info "Node directory does not exist, cloning repository"
+        mkdir -p "$install_dir"
+        git clone "$url" "$install_dir"
+        if [ $? -ne 0 ]; then
+            error "Failed to clone repository: $url"
+            return 1
+        fi
+    fi
+    
+    # ... (checkout specific commit, install requirements, etc.)
+}
+```
+
+## Configuration
+
+The script uses a JSON configuration file to define which custom nodes to install and update. The configuration file is typically located at `/workspace/shared/config_nodes.json` (or `config_nodes_test.json` in test mode).
+
+Example configuration:
+
+```json
+{
+  "nodes": [
+    {
+      "name": "ComfyUI-Manager",
+      "url": "https://github.com/ltdrdata/ComfyUI-Manager.git",
+      "commit": "latest"
+    },
+    {
+      "name": "ComfyUI-Impact-Pack",
+      "url": "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git",
+      "commit": "latest"
+    }
+  ]
+}
+```
+
+## Environment Variables
+
+The script uses several environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ROOT` | Root directory for ComfyUI instances | `/workspace` |
+| `AWS_TEST_MODE` | Use test bucket for S3 sync | `false` |
+| `SKIP_AWS_SYNC` | Skip AWS synchronization | `false` |
+| `DEBUG` | Enable debug mode | `false` |
+
+## Log Files
+
+The script logs its operations to `/workspace/logs/update.log` for troubleshooting and monitoring.
+
+## Related Scripts
+
+- [mcomfy](/gpu-containers/mcomfy-script): The wrapper script that provides a simpler interface to this script
+- [start.sh](/gpu-containers/start-script): The main startup script that calls this script during initialization

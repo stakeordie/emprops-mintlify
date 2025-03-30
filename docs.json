@@ -22,6 +22,22 @@
             ]
           },
           {
+            "group": "GPU Containers",
+            "pages": [
+              "gpu-containers/overview",
+              "gpu-containers/docker-compose",
+              "gpu-containers/docker-file",
+              "gpu-containers/start-script",
+              "gpu-containers/mcomfy-script",
+              "gpu-containers/mgpu-script",
+              "gpu-containers/update-nodes-script",
+              "gpu-containers/cleanup-outputs-script",
+              "gpu-containers/langflow-script",
+              "gpu-containers/comfyui-script",
+              "gpu-containers/direct-script"
+            ]
+          },
+          {
             "group": "Essentials",
             "pages": [
               "essentials/markdown",

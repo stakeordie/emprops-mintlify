@@ -1,0 +1,152 @@
+---
+title: 'mgpu Script'
+description: 'Documentation for the mgpu utility script for managing multiple GPU instances of ComfyUI'
+---
+
+# mgpu Script
+
+The `mgpu` script is a utility for managing multiple GPU instances of ComfyUI in the emp-mgpu environment. It provides commands for starting, stopping, restarting, and monitoring ComfyUI instances across multiple GPUs.
+
+## Overview
+
+The script is designed to manage ComfyUI instances across multiple GPUs, with each instance assigned to a specific GPU. It's installed in the container at `/usr/local/bin/mgpu` and is available in the system PATH.
+
+## Usage
+
+```bash
+mgpu <command> [gpu_id]
+```
+
+Where:
+- `command` is the operation to perform (start, stop, restart, etc.)
+- `gpu_id` is the ID of the GPU to operate on (0, 1, 2, etc., or "all" for all GPUs)
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `start` | Start ComfyUI on specified GPU(s) |
+| `stop` | Stop ComfyUI on specified GPU(s) |
+| `restart` | Restart ComfyUI on specified GPU(s) |
+| `status` | Check status of ComfyUI on specified GPU(s) |
+| `logs` | Show logs for ComfyUI on specified GPU(s) |
+| `setup` | Set up ComfyUI directory for specified GPU(s) |
+| `count` | Show number of GPUs available |
+
+## Examples
+
+### Start ComfyUI
+
+To start ComfyUI on GPU 0:
+
+```bash
+mgpu start 0
+```
+
+To start ComfyUI on all GPUs:
+
+```bash
+mgpu start all
+```
+
+### Check Status
+
+To check the status of ComfyUI on GPU 1:
+
+```bash
+mgpu status 1
+```
+
+To check the status of ComfyUI on all GPUs:
+
+```bash
+mgpu status all
+```
+
+### View Logs
+
+To view logs for ComfyUI on GPU 0:
+
+```bash
+mgpu logs 0
+```
+
+## Implementation Details
+
+The script is organized into functions for each operation, with validation to ensure that GPU IDs are valid:
+
+```bash
+# Validate GPU ID
+validate_gpu_id() {
+    local gpu_id=$1
+
+    # Special case for 'all'
+    if [ "$gpu_id" = "all" ]; then
+        return 0
+    fi
+
+    # Check if gpu_id is a number
+    if ! [[ "$gpu_id" =~ ^[0-9]+$ ]]; then
+        log "Error: Invalid GPU ID '$gpu_id'. Must be a number or 'all'"
+        return 1
+    fi
+
+    # Check if gpu_id is within range
+    if [ "$gpu_id" -ge "${NUM_GPUS:-0}" ]; then
+        log "Error: GPU ID '$gpu_id' is out of range. Must be between 0 and $((NUM_GPUS-1))"
+        return 1
+    fi
+
+    return 0
+}
+```
+
+Each operation is implemented as a function that performs the specified action for a single GPU or all GPUs:
+
+```bash
+# Function to start a specific GPU service
+start_service() {
+    local gpu_id=$1
+    
+    if ! validate_gpu_id "$gpu_id"; then
+        return 1
+    fi
+    
+    if [ "$gpu_id" = "all" ]; then
+        start_all_services
+        return $?
+    fi
+    
+    log "Starting ComfyUI service for GPU $gpu_id"
+    service "comfyui_gpu$gpu_id" start
+    log "ComfyUI service for GPU $gpu_id started"
+}
+```
+
+## Environment Variables
+
+The script uses several environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ROOT` | Root directory for ComfyUI instances | `/workspace` |
+| `NUM_GPUS` | Number of GPUs available | (auto-detected) |
+| `MOCK_GPU` | Whether to mock GPU support | `false` |
+| `DEBUG` | Enable debug mode | `false` |
+
+## Directory Structure
+
+The script manages ComfyUI instances in the following directory structure:
+
+```
+/workspace/
+├── comfyui_gpu0/    # ComfyUI instance for GPU 0
+├── comfyui_gpu1/    # ComfyUI instance for GPU 1
+├── ...
+└── logs/            # Log files
+```
+
+## Related Scripts
+
+- [start.sh](/gpu-containers/start-script): The main startup script that uses mgpu to set up and start ComfyUI instances
+- [comfyui](/etc/init.d/comfyui): The init.d script that manages ComfyUI services

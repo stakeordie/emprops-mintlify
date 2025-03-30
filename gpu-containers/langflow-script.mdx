@@ -1,0 +1,123 @@
+---
+title: 'Langflow Script'
+description: 'Documentation for the Langflow service script in emp-mgpu'
+---
+
+# Langflow Script
+
+The `langflow` script is a system service script that manages the Langflow server in the emp-mgpu environment. It provides a standardized way to start, stop, and manage the Langflow service.
+
+## Overview
+
+Langflow is a UI for LangChain, designed to provide a visual way to build and prototype LLM applications. This script is installed as a system service in the container at `/etc/init.d/langflow` and is configured to start automatically when the container starts.
+
+## Script Structure
+
+The script follows the standard Linux init.d script format:
+
+```bash
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          langflow
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Langflow server
+# Description:       Langflow server running in background
+### END INIT INFO
+
+# Change these to match your installation
+DIR=/workspace
+DAEMON=langflow
+DAEMON_NAME=langflow
+
+# Allow dynamic GPU selection
+export CUDA_VISIBLE_DEVICES=all
+# Enable PyTorch to select least used GPU dynamically
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+
+# Add any command line options for your daemon here
+DAEMON_OPTS="run --host 127.0.0.1 --port 7860 --env-file /etc/environment"
+```
+
+## Key Features
+
+### GPU Selection
+
+The script is configured to use all available GPUs and let PyTorch dynamically select the least used GPU:
+
+```bash
+# Allow dynamic GPU selection
+export CUDA_VISIBLE_DEVICES=all
+# Enable PyTorch to select least used GPU dynamically
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+```
+
+### Service Management
+
+The script provides standard service management functions:
+
+```bash
+do_start () {
+    log_daemon_msg "Starting system $DAEMON_NAME daemon with dynamic GPU selection"
+    start-stop-daemon --start --background --pidfile $PIDFILE --make-pidfile --user $DAEMON_USER --chuid $DAEMON_USER --startas /bin/bash -- -c "exec env CUDA_VISIBLE_DEVICES=all CUDA_DEVICE_ORDER=PCI_BUS_ID $DAEMON $DAEMON_OPTS > /workspace/logs/langflow.log 2>&1"
+    log_end_msg $?
+}
+
+do_stop () {
+    log_daemon_msg "Stopping system $DAEMON_NAME daemon"
+    start-stop-daemon --stop --pidfile $PIDFILE --retry 10
+    log_end_msg $?
+}
+```
+
+## Usage
+
+The script can be used to manage the Langflow service:
+
+```bash
+# Start the service
+service langflow start
+
+# Stop the service
+service langflow stop
+
+# Restart the service
+service langflow restart
+
+# Check service status
+service langflow status
+```
+
+## Configuration
+
+The script uses the following configuration:
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Host | 127.0.0.1 | Binds to localhost only |
+| Port | 7860 | The port Langflow listens on |
+| Environment | /etc/environment | File containing environment variables |
+
+## Environment Variables
+
+The script uses several environment variables from `/etc/environment`:
+
+| Variable | Description |
+|----------|-------------|
+| LANGFLOW_AUTO_LOGIN | Whether to enable auto-login |
+| LANGFLOW_SUPERUSER | Superuser username |
+| LANGFLOW_SUPERUSER_PASSWORD | Superuser password |
+| LANGFLOW_SECRET_KEY | Secret key for session encryption |
+| LANGFLOW_NEW_USER_IS_ACTIVE | Whether new users are active by default |
+| LANGFLOW_VARIABLES_TO_GET_FROM_ENVIRONMENT | Variables to import from environment |
+
+## Logging
+
+Logs from the Langflow service are written to `/workspace/logs/langflow.log`.
+
+## Related Components
+
+- [start.sh](/gpu-containers/start-script): The main startup script that sets up and starts the Langflow service
+- [docker-file.mdx](/gpu-containers/docker-file): Contains the installation of the Langflow script

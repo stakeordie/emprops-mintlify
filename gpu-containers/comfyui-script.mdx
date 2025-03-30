@@ -1,0 +1,217 @@
+---
+title: 'ComfyUI Service Script'
+description: 'Documentation for the ComfyUI service script in emp-mgpu'
+---
+
+# ComfyUI Service Script
+
+The `comfyui` script is a system service script that manages ComfyUI instances across multiple GPUs in the emp-mgpu environment. It provides a standardized way to start, stop, restart, and check the status of ComfyUI instances.
+
+## Overview
+
+This script is installed as a system service in the container at `/etc/init.d/comfyui` and is configured to start automatically when the container starts. It's designed to work with the [mgpu script](/gpu-containers/mgpu-script) to manage ComfyUI instances across multiple GPUs.
+
+## Script Structure
+
+The script follows the standard Linux init.d script format and is organized into functions for different operations:
+
+```bash
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          comfyui
+# Required-Start:    $network
+# Required-Stop:     $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start ComfyUI
+### END INIT INFO
+
+# Paths
+ROOT="${ROOT:-/workspace}"
+NUM_GPUS="${NUM_GPUS:-0}"  # Default to CPU mode
+
+# Use MOCK_GPU and COMFY_ARGS as provided by environment
+if [ "${MOCK_GPU:-0}" = "1" ]; then
+    export COMFY_ARGS="--cpu"
+fi
+```
+
+## Key Functions
+
+### Setup Logs
+
+The script sets up logging for each ComfyUI instance:
+
+```bash
+setup_logs() {
+    local GPU_NUM=$1
+    local WORK_DIR="${ROOT}/comfyui_gpu${GPU_NUM}"
+    
+    # Create log directories
+    mkdir -p "${WORK_DIR}/logs"
+    chmod 755 "${WORK_DIR}/logs"
+    
+    # Create empty log file if it doesn't exist
+    touch "${WORK_DIR}/logs/output.log"
+    chmod 644 "${WORK_DIR}/logs/output.log"
+}
+```
+
+### Start ComfyUI
+
+The script starts ComfyUI instances for specific GPUs:
+
+```bash
+start() {
+    local GPU_NUM=$1
+    local WORK_DIR="${ROOT}/comfyui_gpu${GPU_NUM}"
+    local PORT=$((8188 + GPU_NUM))
+    
+    # Setup logs first
+    setup_logs "$GPU_NUM"
+    
+    # Check if already running
+    if [ -f "${WORK_DIR}/comfyui.pid" ] && kill -0 "$(cat "${WORK_DIR}/comfyui.pid")" 2>/dev/null; then
+        if netstat -tuln | grep -q ":$PORT "; then
+            log "$GPU_NUM" "Service is already running"
+            return 0
+        fi
+    fi
+    
+    # Build command with any additional args
+    local CMD="python main.py --listen 127.0.0.1 --port $PORT --extra-model-paths-config ${ROOT}/shared/comfy_dir_config.yaml"
+    
+    # Add mode-specific args
+    if [ "${MOCK_GPU:-0}" = "1" ]; then
+        CMD="$CMD --cpu"
+    else
+        # Set CUDA_VISIBLE_DEVICES for this GPU
+        export CUDA_VISIBLE_DEVICES="$GPU_NUM"
+    fi
+    
+    # Start the service
+    cd "$WORK_DIR" || return 1
+    nohup $CMD > "${WORK_DIR}/logs/output.log" 2>&1 &
+    echo $! > "${WORK_DIR}/comfyui.pid"
+}
+```
+
+### Stop ComfyUI
+
+The script stops ComfyUI instances:
+
+```bash
+stop() {
+    local GPU_NUM=$1
+    local WORK_DIR="${ROOT}/comfyui_gpu${GPU_NUM}"
+    
+    # Check if running
+    if [ ! -f "${WORK_DIR}/comfyui.pid" ]; then
+        log "$GPU_NUM" "Service is not running (no PID file)"
+        return 0
+    fi
+    
+    local PID
+    PID=$(cat "${WORK_DIR}/comfyui.pid")
+    
+    # Check if process exists
+    if ! kill -0 "$PID" 2>/dev/null; then
+        log "$GPU_NUM" "Service is not running (PID $PID not found)"
+        rm -f "${WORK_DIR}/comfyui.pid"
+        return 0
+    fi
+    
+    # Stop the service
+    log "$GPU_NUM" "Stopping ComfyUI service (PID $PID)"
+    kill "$PID"
+    
+    # Wait for process to terminate
+    local TIMEOUT=30
+    local COUNT=0
+    while kill -0 "$PID" 2>/dev/null && [ "$COUNT" -lt "$TIMEOUT" ]; do
+        sleep 1
+        COUNT=$((COUNT + 1))
+    done
+    
+    # Force kill if still running
+    if kill -0 "$PID" 2>/dev/null; then
+        log "$GPU_NUM" "Service did not stop gracefully, force killing"
+        kill -9 "$PID"
+    fi
+    
+    rm -f "${WORK_DIR}/comfyui.pid"
+    log "$GPU_NUM" "ComfyUI service stopped"
+}
+```
+
+## Usage
+
+The script is typically used through the system service interface:
+
+```bash
+# Start all ComfyUI instances
+service comfyui start
+
+# Stop all ComfyUI instances
+service comfyui stop
+
+# Restart all ComfyUI instances
+service comfyui restart
+
+# Check status of all ComfyUI instances
+service comfyui status
+```
+
+You can also specify a specific GPU:
+
+```bash
+# Start ComfyUI on GPU 0
+service comfyui start 0
+
+# Stop ComfyUI on GPU 1
+service comfyui stop 1
+```
+
+## Port Allocation
+
+Each ComfyUI instance is assigned a unique port based on its GPU number:
+
+| GPU | Port |
+|-----|------|
+| 0 | 8188 |
+| 1 | 8189 |
+| 2 | 8190 |
+| ... | ... |
+
+## Environment Variables
+
+The script uses several environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| ROOT | Root directory for ComfyUI instances | `/workspace` |
+| NUM_GPUS | Number of GPUs available | 0 |
+| MOCK_GPU | Whether to run in CPU mode | 0 |
+| COMFY_ARGS | Additional arguments for ComfyUI | |
+
+## Directory Structure
+
+The script manages ComfyUI instances in the following directory structure:
+
+```
+/workspace/
+├── comfyui_gpu0/    # ComfyUI instance for GPU 0
+│   ├── main.py      # ComfyUI main script
+│   ├── comfyui.pid  # PID file
+│   └── logs/        # Log directory
+├── comfyui_gpu1/    # ComfyUI instance for GPU 1
+├── ...
+└── shared/          # Shared files
+    └── comfy_dir_config.yaml  # Model paths configuration
+```
+
+## Related Components
+
+- [mgpu script](/gpu-containers/mgpu-script): Higher-level utility for managing ComfyUI instances
+- [start.sh](/gpu-containers/start-script): The main startup script that sets up and starts ComfyUI instances
+- [docker-file.mdx](/gpu-containers/docker-file): Contains the installation of the ComfyUI script

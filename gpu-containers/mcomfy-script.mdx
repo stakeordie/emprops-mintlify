@@ -1,0 +1,106 @@
+---
+title: 'mcomfy Script'
+description: 'Documentation for the mcomfy utility script for managing ComfyUI nodes and models'
+---
+
+# mcomfy Script
+
+The `mcomfy` script is a utility for managing ComfyUI nodes and models in the emp-mgpu environment. It provides a simple interface for updating custom nodes and synchronizing models from S3.
+
+## Overview
+
+The script serves as a wrapper around the more complex [update_nodes.sh](/gpu-containers/update-nodes-script) script, providing a simpler interface for common operations. It's installed in the container at `/usr/local/bin/mcomfy` and is available in the system PATH.
+
+## Usage
+
+```bash
+mcomfy <command> [options]
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `nodes` | Manage custom nodes (update, install, remove) |
+| `models` | Sync models from S3 |
+| `help` | Show help message |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-t, --test` | Use test configuration (config_nodes_test.json) and skip AWS sync |
+| `-d, --debug` | Enable debug mode |
+
+## Examples
+
+### Update Nodes
+
+To update all custom nodes using the production configuration:
+
+```bash
+mcomfy nodes
+```
+
+To update nodes using the test configuration:
+
+```bash
+mcomfy nodes -t
+```
+
+### Sync Models
+
+To synchronize models from S3:
+
+```bash
+mcomfy models
+```
+
+To test model synchronization without actually performing the sync:
+
+```bash
+mcomfy models -t
+```
+
+## Implementation Details
+
+The script is a simple bash script that parses command-line arguments and delegates to the [update_nodes.sh](/gpu-containers/update-nodes-script) script with appropriate options.
+
+```bash
+#!/bin/bash
+
+# Update nodes script location
+UPDATE_SCRIPT="/usr/local/lib/mcomfy/update_nodes.sh"
+
+# Main command processing
+case "$COMMAND" in
+    nodes)
+        exec "$UPDATE_SCRIPT" --nodes-only
+        ;;
+    models)
+        exec "$UPDATE_SCRIPT" --models-only
+        ;;
+    help|--help|-h)
+        usage
+        ;;
+    *)
+        echo "Error: Unknown command '$COMMAND'"
+        usage
+        ;;
+esac
+```
+
+## Environment Variables
+
+The script uses several environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DEBUG` | Enable debug mode | `false` |
+| `AWS_TEST_MODE` | Use test configuration | `false` |
+| `SKIP_AWS_SYNC` | Skip AWS synchronization | `false` |
+
+## Related Scripts
+
+- [update_nodes.sh](/gpu-containers/update-nodes-script): The main script that performs node updates and model synchronization
+- [start.sh](/gpu-containers/start-script): The main startup script that calls mcomfy during initialization

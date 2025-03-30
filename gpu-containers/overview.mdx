@@ -1,0 +1,73 @@
+---
+title: 'EmProps GPU Container Overview'
+description: 'An overview of the emp-mgpu repository structure and purpose'
+---
+
+# EmProps GPU Container Overview
+
+The `emp-mgpu` repository contains a Docker-based infrastructure for running ComfyUI with multiple GPU configurations. This documentation explains the repository structure, key components, and how they work together.
+
+## Repository Purpose
+
+The emp-mgpu repository provides a containerized environment for running ComfyUI instances with the following features:
+
+- Support for multiple GPU configurations
+- Pre-configured custom nodes and extensions
+- Model management and synchronization with S3
+- Authentication and access control
+- Service management and monitoring
+
+## Key Components
+
+The repository consists of several key components that work together:
+
+### 1. Docker Configuration
+
+- **[Dockerfile](/gpu-containers/docker-file)**: Defines the multi-stage build process for creating the ComfyUI container image
+- **[docker-compose.yml](/gpu-containers/docker-compose)**: Configures multiple services with different ComfyUI configurations
+
+### 2. Startup and Configuration
+
+- **[start.sh](/gpu-containers/start-script)**: The main entry point script that orchestrates the entire setup process
+- **Environment Variables**: Configuration through .env files to control behavior
+
+### 3. Utility Scripts
+
+- **mcomfy**: Utility for managing ComfyUI nodes and models
+- **mgpu**: GPU management utilities
+- **update_nodes.sh**: Script for updating custom nodes
+- **cleanup_outputs.sh**: Periodic cleanup of output files
+
+## Repository Structure
+
+```
+emp-mgpu/
+├── Dockerfile              # Container definition
+├── docker-compose.yml      # Service configuration
+├── .env.sample             # Sample environment variables
+├── scripts/                # Utility scripts
+│   ├── start.sh            # Main startup script
+│   ├── mcomfy              # ComfyUI management utility
+│   ├── mgpu                # GPU management utility
+│   ├── update_nodes.sh     # Node update script
+│   ├── cleanup_outputs.sh  # Output cleanup script
+│   ├── comfyui             # ComfyUI service script
+│   ├── direct.sh           # Direct installation script
+│   └── a1111/              # Stable Diffusion scripts
+├── config/                 # Configuration files
+│   └── shared/             # Shared custom nodes
+```
+
+## Getting Started
+
+To use this repository:
+
+1. Clone the repository
+2. Copy `.env.sample` to `.env.local` and configure your environment variables
+3. Run `docker compose up -d` to start the services
+
+For detailed information about each component, refer to the specific documentation pages:
+
+- [Docker Compose Configuration](/gpu-containers/docker-compose)
+- [Dockerfile Structure](/gpu-containers/dockerfile)
+- [Start Script Flow](/gpu-containers/start-script)

@@ -1,0 +1,284 @@
+---
+title: 'direct.sh Script'
+description: 'Documentation for the direct.sh environment setup and initialization script'
+---
+
+# direct.sh Script
+
+The `direct.sh` script is a comprehensive environment setup and initialization script for the emp-mgpu environment. It's designed to check the current system environment, set up dependencies, and run the main start.sh script.
+
+## Overview
+
+This script serves as an alternative entry point for the emp-mgpu environment, particularly useful when running outside of Docker. It performs thorough environment checks and setup before launching the main application.
+
+## Script Structure
+
+The script is organized into functions that handle different aspects of environment setup:
+
+```bash
+#!/bin/bash
+# direct.sh - Environment setup and initialization script for running containers
+# This script checks the current environment, sets up dependencies, and runs start.sh
+
+# Directory setup
+ROOT="${ROOT:-/workspace}"
+LOG_DIR="${ROOT}/logs"
+REPORT_DIR="${ROOT}/reports"
+ENV_REPORT="${REPORT_DIR}/environment_report.txt"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOCKER_DIR="$(dirname "$SCRIPT_DIR")"
+```
+
+## Key Functions
+
+### Environment Loading
+
+The script loads environment variables from .env files:
+
+```bash
+load_env_files() {
+    log "Loading environment files..."
+    
+    # Load .env file if it exists
+    if [ -f "${DOCKER_DIR}/.env" ]; then
+        log "Loading ${DOCKER_DIR}/.env"
+        set -o allexport
+        source "${DOCKER_DIR}/.env"
+        set +o allexport
+    else
+        log_warning "No .env file found at ${DOCKER_DIR}/.env"
+    fi
+    
+    # Load .env.local file if it exists
+    if [ -f "${DOCKER_DIR}/.env.local" ]; then
+        log "Loading ${DOCKER_DIR}/.env.local"
+        set -o allexport
+        source "${DOCKER_DIR}/.env.local"
+        set +o allexport
+    else
+        log_warning "No .env.local file found at ${DOCKER_DIR}/.env.local"
+    fi
+    
+    log_success "Environment files loaded"
+}
+```
+
+### System Environment Check
+
+The script performs a thorough check of the system environment:
+
+```bash
+check_system_env() {
+    log "Checking system environment..."
+    
+    {
+        echo "======= SYSTEM INFORMATION ======="
+        echo "Date: $(date)"
+        echo "Hostname: $(hostname)"
+        echo "Kernel: $(uname -a)"
+        echo "Distribution: $(cat /etc/*release | grep PRETTY_NAME | cut -d= -f2 | tr -d '"')"
+        echo "CPU: $(grep "model name" /proc/cpuinfo | head -n1 | cut -d: -f2 | tr -d ' ')"
+        echo "Memory: $(free -h | grep Mem | awk '{print $2}')"
+        echo ""
+    } > "$ENV_REPORT"
+    
+    log_success "System environment checked"
+}
+```
+
+### GPU Check
+
+The script checks for available GPUs:
+
+```bash
+check_gpu() {
+    log "Checking GPU availability..."
+    
+    {
+        echo "======= GPU INFORMATION ======="
+        
+        if command -v nvidia-smi >/dev/null 2>&1; then
+            echo "NVIDIA GPU detected"
+            nvidia-smi
+            
+            # Count GPUs
+            NUM_GPUS=$(nvidia-smi --list-gpus | wc -l)
+            log "Detected $NUM_GPUS GPUs"
+            export NUM_GPUS
+            
+            # Check CUDA
+            if command -v nvcc >/dev/null 2>&1; then
+                echo "CUDA version: $(nvcc --version | grep "release" | awk '{print $5}' | cut -d',' -f1)"
+            else
+                echo "CUDA toolkit not installed"
+            fi
+        else
+            echo "No NVIDIA GPU detected or nvidia-smi not installed"
+            export NUM_GPUS=0
+            export MOCK_GPU=1
+        fi
+        
+        echo ""
+    } >> "$ENV_REPORT"
+    
+    log_success "GPU check complete"
+}
+```
+
+### ComfyUI Setup
+
+The script sets up ComfyUI if needed:
+
+```bash
+setup_comfyui() {
+    log "Setting up ComfyUI..."
+    
+    # Create ComfyUI directory if it doesn't exist
+    mkdir -p "${ROOT}/ComfyUI"
+    
+    # Clone ComfyUI if not already cloned
+    if [ ! -f "${ROOT}/ComfyUI/main.py" ]; then
+        log "Cloning ComfyUI repository..."
+        git clone https://github.com/comfyanonymous/ComfyUI.git "${ROOT}/ComfyUI"
+        
+        # Install requirements
+        cd "${ROOT}/ComfyUI" || exit 1
+        pip install -r requirements.txt
+    else
+        log "ComfyUI already cloned"
+    fi
+    
+    log_success "ComfyUI setup complete"
+}
+```
+
+### Service Setup
+
+The script sets up system services:
+
+```bash
+setup_services() {
+    log "Setting up services..."
+    
+    # Setup ComfyUI service
+    if [ -f "${DOCKER_DIR}/scripts/comfyui" ]; then
+        log "Setting up ComfyUI service"
+        cp "${DOCKER_DIR}/scripts/comfyui" /etc/init.d/comfyui
+        chmod +x /etc/init.d/comfyui
+        update-rc.d comfyui defaults
+    else
+        log_warning "ComfyUI service script not found"
+    fi
+    
+    # Setup mgpu utility
+    if [ -f "${DOCKER_DIR}/scripts/mgpu" ]; then
+        log "Setting up mgpu utility"
+        cp "${DOCKER_DIR}/scripts/mgpu" /usr/local/bin/mgpu
+        chmod +x /usr/local/bin/mgpu
+    else
+        log_warning "mgpu utility script not found"
+    fi
+    
+    # Setup mcomfy utility and update_nodes.sh
+    if [ -f "${DOCKER_DIR}/scripts/mcomfy" ]; then
+        mkdir -p /usr/local/lib/mcomfy
+        cp "${DOCKER_DIR}/scripts/mcomfy" /usr/local/bin/mcomfy
+        chmod +x /usr/local/bin/mcomfy
+        
+        if [ -f "${DOCKER_DIR}/scripts/update_nodes.sh" ]; then
+            log "Setting up update_nodes.sh"
+            cp "${DOCKER_DIR}/scripts/update_nodes.sh" /usr/local/lib/mcomfy/update_nodes.sh
+            chmod +x /usr/local/lib/mcomfy/update_nodes.sh
+        else
+            log_warning "update_nodes.sh script not found"
+        fi
+    else
+        log_warning "mcomfy utility script not found"
+    fi
+    
+    log_success "Services setup complete"
+}
+```
+
+## Main Function
+
+The main function orchestrates the entire setup process:
+
+```bash
+main() {
+    log "Starting direct.sh setup..."
+    
+    # Load environment variables
+    load_env_files
+    
+    # Check system environment
+    check_system_env
+    check_python_env
+    check_gpu
+    check_directory_structure
+    check_env_variables
+    
+    # Install dependencies
+    check_installed_packages
+    install_missing_dependencies
+    install_libstdcxx
+    update_python_packages
+    
+    # Setup application
+    setup_comfyui
+    setup_shared_directories
+    setup_services
+    
+    # Run start.sh if it exists
+    if [ -f "${DOCKER_DIR}/scripts/start.sh" ]; then
+        log "Running start.sh..."
+        chmod +x "${DOCKER_DIR}/scripts/start.sh"
+        "${DOCKER_DIR}/scripts/start.sh"
+    else
+        log_error "start.sh not found at ${DOCKER_DIR}/scripts/start.sh"
+        exit 1
+    fi
+    
+    log_success "direct.sh setup complete"
+}
+```
+
+## Usage
+
+The script is typically run directly:
+
+```bash
+./scripts/direct.sh
+```
+
+It can also be used as an alternative entry point when running outside of Docker:
+
+```bash
+# Clone the repository
+git clone https://github.com/stakeordie/emp-mgpu.git
+cd emp-mgpu
+
+# Create and configure .env.local
+cp .env.sample .env.local
+# Edit .env.local with your settings
+
+# Run direct.sh
+./scripts/direct.sh
+```
+
+## Environment Report
+
+The script generates a detailed environment report at `/workspace/reports/environment_report.txt` that includes:
+
+- System information (hostname, kernel, distribution, CPU, memory)
+- Python environment (version, packages)
+- GPU information (count, model, CUDA version)
+- Directory structure
+- Environment variables
+
+## Related Components
+
+- [start.sh](/gpu-containers/start-script): The main startup script that's called by direct.sh
+- [comfyui script](/gpu-containers/comfyui-script): Service script installed by direct.sh
+- [mgpu script](/gpu-containers/mgpu-script): Utility installed by direct.sh
+- [mcomfy script](/gpu-containers/mcomfy-script): Utility installed by direct.sh

@@ -1,0 +1,152 @@
+---
+title: 'Docker Compose Configuration'
+description: 'Detailed explanation of the docker-compose.yml file in emp-mgpu'
+---
+
+# Docker Compose Configuration
+
+The `docker-compose.yml` file in the emp-mgpu repository defines the services and their configurations. This document explains the structure and purpose of each component.
+
+## Base Service Configuration
+
+The docker-compose file starts with a base service definition that is reused across all services:
+
+```yaml
+x-base-service: &base-service
+  env_file:
+    - .env.local
+  build:
+    context: .
+    dockerfile: Dockerfile
+    platforms:
+      - linux/amd64
+    args:
+      FORCE_FRESH_CLONE: ${FORCE_FRESH_CLONE:-false}
+  ports:
+    - "3188:3188"
+    - "3189:3189"
+    - "3190:3190"
+    - "3191:3191"
+    - "3192:3192"
+    - "3193:3193"
+    - "3194:3194"
+    - "3195:3195"
+  restart: unless-stopped
+  platform: linux/amd64
+```
+
+This base configuration:
+- Uses environment variables from `.env.local`
+- Specifies the build context and Dockerfile
+- Targets the linux/amd64 platform
+- Exposes ports 3188-3195 for various services
+- Sets containers to restart automatically unless explicitly stopped
+
+## Services
+
+### ComfyUI (Official)
+
+```yaml
+services:
+  comfyui:
+    <<: *base-service
+    container_name: comfy
+    image: emprops/comfy:latest
+    environment:
+      - COMFY_REPO_URL=https://github.com/comfyanonymous/ComfyUI.git
+    build:
+      args:
+        COMFY_REPO_URL: https://github.com/comfyanonymous/ComfyUI.git
+```
+
+This service:
+- Inherits all configuration from the base service
+- Uses the container name "comfy"
+- Creates an image tagged as "emprops/comfy:latest"
+- Uses the official ComfyUI repository
+
+### ComfyUI (EmProps Fork)
+
+```yaml
+comfyui-fork:
+  <<: *base-service
+  container_name: comfy-fork
+  image: emprops/comfy-fork:latest
+  environment:
+    - COMFY_REPO_URL=https://github.com/stakeordie/ComfyUI.git
+  build:
+    args:
+      COMFY_REPO_URL: https://github.com/stakeordie/ComfyUI.git
+```
+
+This service:
+- Uses the EmProps fork of ComfyUI
+- Creates a separate container named "comfy-fork"
+- Uses the same base configuration as the official version
+
+### ComfyUI (Development Fork)
+
+```yaml
+comfyui-fork-devel:
+  <<: *base-service
+  container_name: comfy-fork-devel
+  image: emprops/comfy-fork-devel:latest
+  environment:
+    - COMFY_REPO_URL=https://github.com/stakeordie/ComfyUI.git
+  build:
+    args:
+      COMFY_REPO_URL: https://github.com/stakeordie/ComfyUI.git
+```
+
+This service:
+- This is identical to `comfyui-fork` but has the devel name so that comfy will work with some library that I can't remember lol.
+
+## Usage
+
+### Starting Specific Services
+
+You can start specific services using:
+
+```bash
+docker compose up -d comfyui-fork-devel
+```
+
+Or start all services:
+
+```bash
+docker compose up -d
+```
+
+### Building Services
+
+To rebuild a specific service:
+
+```bash
+docker compose build comfyui
+```
+
+Or rebuild all services:
+
+```bash
+docker compose build
+```
+
+## Environment Variables
+
+The docker-compose.yml file uses several environment variables that should be defined in your `.env.local` file:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| FORCE_FRESH_CLONE | Whether to force a fresh clone of repositories | false |
+
+## Port Mappings
+
+Each service exposes multiple ports:
+
+| Port | Purpose |
+|------|---------|
+| 3188 | Main ComfyUI interface |
+| 3189 | Secondary interface |
+| 3190-3195 | Additional services and interfaces |
+
+These ports can be accessed on your host machine to interact with the various ComfyUI instances.

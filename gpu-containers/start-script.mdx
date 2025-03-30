@@ -1,0 +1,399 @@
+---
+title: 'Start Script Flow'
+description: 'Detailed explanation of the start.sh script flow and its components'
+---
+
+# Start Script Flow
+
+The `start.sh` script is the main entry point for the emp-mgpu container. It orchestrates the entire setup process, from environment configuration to service startup. This document explains the script's flow and each component's purpose.
+
+## Overview
+
+The start.sh script follows a structured approach with clearly defined phases:
+
+1. Environment setup
+2. SSH access configuration
+3. Custom nodes installation
+4. Model synchronization
+5. NGINX configuration
+6. ComfyUI setup
+7. Service management
+8. Verification and monitoring
+
+## Script Structure
+
+The script is organized into functions, each handling a specific aspect of the setup process:
+
+```bash
+main() {
+    # Phase 1: Check environment variables
+    log_phase "1" "Checking environment variables"
+    setup_env_vars
+    
+    # Phase 2: Setup SSH access
+    log_phase "2" "Setting up SSH access"
+    setup_ssh_access
+    
+    # Phase 3: Setup pre-installed nodes
+    log_phase "3" "Setting up custom nodes"
+    setup_preinstalled_nodes
+
+    # Phase 4&5: AWS sync
+    log_phase "4&5" "aws sync"
+    s3_sync
+    
+    # Phase 6: Setup NGINX
+    log_phase "6" "Setting up NGINX"
+    setup_nginx
+    
+    # Phase 8: Setup ComfyUI instances
+    log_phase "8" "Setting up ComfyUI instances"
+    setup_comfyui
+    
+    # Phase 9: Setup service scripts
+    log_phase "9" "Setting up service scripts"
+    setup_service_scripts
+    
+    # Phase 10: Start NGINX
+    log_phase "10" "Starting NGINX"
+    start_nginx
+    
+    # Phase 11: Start ComfyUI services
+    log_phase "11" "Starting ComfyUI services"
+    start_comfyui
+    
+    # Phase 12: Verify all services
+    log_phase "12" "Verifying all services"
+    verify_and_report
+
+    # Start Langflow
+    setup_langflow
+}
+```
+
+## Phase 1: Environment Setup
+
+The `setup_env_vars` function configures the environment variables needed for the container:
+
+```bash
+setup_env_vars() {
+    log "Setting up environment variables..."
+    
+    # Install uv if not already installed
+    if ! command -v uv >/dev/null 2>&1; then
+        log "Installing uv package installer..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+    fi
+    
+    check_env_vars
+    set_gpu_env
+    
+    # Clean up PATH to avoid duplicates
+    clean_path="/opt/conda/bin:/workspace/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"   
+    AWS_SECRET_ACCESS_KEY=$(echo "${AWS_SECRET_ACCESS_KEY_ENCODED}" | sed 's/_SLASH_/\//g')
+    export AWS_SECRET_ACCESS_KEY
+    
+    # Persist environment variables for SSH sessions
+    # ...
+}
+```
+
+This function:
+- Installs the uv package manager if not present
+- Checks required environment variables
+- Sets GPU-related environment variables
+- Cleans up the PATH variable
+- Persists environment variables for SSH sessions
+
+### Environment Variables Check
+
+The `check_env_vars` function verifies that required environment variables are set:
+
+```bash
+check_env_vars() {
+    if [ -z "$HF_TOKEN" ]; then
+        log "WARNING: HF_TOKEN environment variable not set"
+    else
+        log "HF_TOKEN environment variable set"
+    fi
+
+    # Check other environment variables
+    # ...
+}
+```
+
+### GPU Environment Setup
+
+The `set_gpu_env` function configures GPU-related environment variables:
+
+```bash
+set_gpu_env() {
+    # Detect number of GPUs if not specified
+    if [ -z "$NUM_GPUS" ]; then
+        if [ "$MOCK_GPU" = "true" ]; then
+            NUM_GPUS=1
+            log "MOCK_GPU is true, setting NUM_GPUS=1"
+        else
+            NUM_GPUS=$(nvidia-smi --list-gpus | wc -l)
+            log "Detected $NUM_GPUS GPUs"
+        fi
+    fi
+    
+    # Set CUDA_VISIBLE_DEVICES based on TEST_GPUS
+    # ...
+}
+```
+
+## Phase 2: SSH Access Setup
+
+The `setup_ssh_access` function configures SSH access to the container:
+
+```bash
+setup_ssh_access() {
+    log "Setting up SSH access..."
+    
+    # Create SSH directory if it doesn't exist
+    mkdir -p /root/.ssh
+    chmod 700 /root/.ssh
+    
+    # Generate SSH keys if they don't exist
+    # ...
+    
+    # Start SSH service
+    service ssh start
+    
+    log "SSH setup complete"
+}
+```
+
+## Phase 3: Custom Nodes Setup
+
+The `setup_preinstalled_nodes` function prepares the custom nodes:
+
+```bash
+setup_preinstalled_nodes() {
+    log "Setting up pre-installed custom nodes..."
+    
+    # Create directory for custom nodes
+    mkdir -p "${ROOT}/custom_nodes"
+    
+    # Copy pre-installed nodes
+    cp -r "${ROOT}/shared_custom_nodes"/* "${ROOT}/custom_nodes/"
+    
+    log "Pre-installed custom nodes setup complete"
+}
+```
+
+## Phase 4 & 5: AWS Sync
+
+The `s3_sync` function synchronizes models and other files from S3:
+
+```bash
+s3_sync() {
+    log "Syncing from S3..."
+    
+    # Create models directory
+    mkdir -p "${ROOT}/models"
+    
+    # Sync models from S3
+    aws s3 sync s3://emprops-ai-models/ "${ROOT}/models/" --exclude "*.safetensors" --exclude "*.ckpt"
+    
+    log "S3 sync complete"
+}
+```
+
+## Phase 6: NGINX Setup
+
+The `setup_nginx` function configures NGINX for serving ComfyUI:
+
+```bash
+setup_nginx() {
+    log "Setting up NGINX..."
+    
+    # Create NGINX configuration
+    # ...
+    
+    # Setup authentication if needed
+    setup_nginx_auth
+    
+    log "NGINX setup complete"
+}
+```
+
+### NGINX Authentication
+
+The `setup_nginx_auth` function configures authentication for NGINX:
+
+```bash
+setup_nginx_auth() {
+    log "Setting up NGINX authentication..."
+    
+    # Check if authentication is enabled
+    if [ -n "$SERVER_CREDS" ]; then
+        # Create authentication file
+        # ...
+    else
+        log "No SERVER_CREDS provided, skipping authentication"
+    fi
+    
+    log "NGINX authentication setup complete"
+}
+```
+
+## Phase 8: ComfyUI Setup
+
+The `setup_comfyui` function prepares the ComfyUI instances:
+
+```bash
+setup_comfyui() {
+    log "Setting up ComfyUI..."
+    
+    # Clone ComfyUI repository
+    git clone "$COMFY_REPO_URL" "$COMFY_DIR"
+    
+    # Install requirements
+    cd "$COMFY_DIR" || exit 1
+    pip install -r requirements.txt
+    
+    # Setup custom nodes
+    # ...
+    
+    log "ComfyUI setup complete"
+}
+```
+
+## Phase 9: Service Scripts Setup
+
+The `setup_service_scripts` function prepares the service scripts:
+
+```bash
+setup_service_scripts() {
+    log "Setting up service scripts..."
+    
+    # Create service scripts
+    # ...
+    
+    log "Service scripts setup complete"
+}
+```
+
+## Phase 10: Start NGINX
+
+The `start_nginx` function starts the NGINX service:
+
+```bash
+start_nginx() {
+    log "Starting NGINX..."
+    
+    # Start NGINX service
+    service nginx start
+    
+    # Check if NGINX is running
+    if pgrep -x "nginx" > /dev/null; then
+        log "NGINX started successfully"
+    else
+        log "ERROR: Failed to start NGINX"
+    fi
+    
+    log "NGINX start complete"
+}
+```
+
+## Phase 11: Start ComfyUI
+
+The `start_comfyui` function starts the ComfyUI services:
+
+```bash
+start_comfyui() {
+    log "Starting ComfyUI services..."
+    
+    # Start ComfyUI service
+    service comfyui start
+    
+    # Check if ComfyUI is running
+    # ...
+    
+    log "ComfyUI services start complete"
+}
+```
+
+## Phase 12: Verification
+
+The `verify_and_report` function verifies that all services are running correctly:
+
+```bash
+verify_and_report() {
+    log "Verifying services..."
+    
+    # Verify services
+    verify_services
+    
+    # Report status
+    if [ "$all_services_ok" = true ]; then
+        log "SUCCESS: All services are running"
+    else
+        log "ERROR: Some services failed to start"
+    fi
+    
+    log "Verification complete"
+}
+```
+
+## Langflow Setup
+
+The `setup_langflow` function sets up and starts the Langflow service:
+
+```bash
+setup_langflow() {
+    log "Setting up Langflow..."
+    
+    # Start Langflow service
+    service langflow start
+    
+    # Check if Langflow is running
+    # ...
+    
+    log "Langflow setup complete"
+}
+```
+
+## Related Scripts
+
+The start.sh script interacts with several other scripts in the repository:
+
+| Script | Purpose | Documentation |
+|--------|---------|---------------|
+| mcomfy | ComfyUI management utility | [mcomfy Script](/gpu-containers/mcomfy-script) |
+| mgpu | GPU management utility | [mgpu Script](/gpu-containers/mgpu-script) |
+| update_nodes.sh | Updates custom nodes | [update_nodes Script](/gpu-containers/update-nodes-script) |
+| cleanup_outputs.sh | Cleans up output files | [cleanup_outputs Script](/gpu-containers/cleanup-outputs-script) |
+
+## Environment Variables
+
+The start.sh script uses several environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| ROOT | Root directory for the application | /workspace |
+| NUM_GPUS | Number of GPUs to use | (auto-detected) |
+| MOCK_GPU | Whether to mock GPU support | false |
+| TEST_GPUS | GPUs to use for testing | (all) |
+| SERVER_CREDS | Credentials for server authentication | (none) |
+| COMFY_AUTH | Authentication for ComfyUI | (none) |
+| AWS_ACCESS_KEY_ID | AWS access key ID | (required) |
+| AWS_SECRET_ACCESS_KEY | AWS secret access key | (required) |
+| AWS_DEFAULT_REGION | AWS default region | (required) |
+| OPENAI_API_KEY | OpenAI API key | (optional) |
+| HF_TOKEN | Hugging Face token | (optional) |
+| LANGFLOW_* | Langflow configuration variables | (optional) |
+
+## Troubleshooting
+
+If you encounter issues with the start.sh script:
+
+1. Check the logs in `/workspace/logs/start.log`
+2. Verify that all required environment variables are set
+3. Ensure that the container has access to the required resources (GPU, network, etc.)
+4. Check the status of individual services using `service <service-name> status`
+
+For more detailed troubleshooting, you can SSH into the container and inspect the logs and processes directly.
